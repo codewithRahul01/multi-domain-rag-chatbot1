@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: multi-domain-rag-chatbot
+    runtime: python
+    rootDir: multi-domain-rag-chatbot
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn src.app.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+    healthCheckPath: /health
+    plan: free

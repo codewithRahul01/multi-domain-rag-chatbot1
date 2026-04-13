@@ -24,4 +24,5 @@ node_modules/
 Thumbs.db
 
 # Vector stores (large binary data)
-vectorstores/
+# NOTE: vectorstores are NOT ignored — they are needed for deployment
+# vectorstores/

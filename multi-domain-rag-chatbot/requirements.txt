@@ -16,3 +16,4 @@ streamlit
 openai
 groq
 rank-bm25
+gunicorn
