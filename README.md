@@ -16,6 +16,7 @@ A production-ready **Retrieval-Augmented Generation (RAG)** chatbot that serves 
 
 ---
 ## Deployment Link:
+https://multi-domain-rag-chatbot-vziq.vercel.app/
 
 
 ##  Project Structure
