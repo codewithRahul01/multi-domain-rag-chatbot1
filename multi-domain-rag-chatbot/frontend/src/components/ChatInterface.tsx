@@ -18,6 +18,20 @@ interface ChatMeta {
   error: string | null;
 }
 
+function formatRequestError(err: unknown): string {
+  if (err instanceof Error) {
+    // Browser network errors from fetch are usually TypeError with generic messages.
+    if (err.name === "TypeError" || /failed to fetch|load failed|networkerror/i.test(err.message)) {
+      return [
+        "Cannot reach the backend API.",
+        "Make sure the FastAPI server is running on port 8000 and not blocked by firewall, then try again.",
+      ].join(" ");
+    }
+    return err.message;
+  }
+  return "Unexpected error";
+}
+
 const TypingIndicator = () => (
   <div className="typing-indicator">
     <span /><span /><span />
@@ -77,12 +91,34 @@ export default function ChatInterface({ domain, title, subtitle, placeholder, we
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const endpoint = useMemo(() => `${apiBase || ""}/api/chat`, []);
+  const healthEndpoint = useMemo(() => `${apiBase || ""}/health`, []);
 
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, meta.sending]);
+
+  useEffect(() => {
+    // Best-effort early signal if backend isn't reachable.
+    const controller = new AbortController();
+    fetch(healthEndpoint, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error("Backend health check failed");
+      })
+      .catch(() => {
+        setMeta((prev) =>
+          prev.error
+            ? prev
+            : {
+                ...prev,
+                error:
+                  "Backend API is not reachable. Start the FastAPI server on port 8000 (and ensure no other process is using that port).",
+              },
+        );
+      });
+    return () => controller.abort();
+  }, [healthEndpoint]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -123,7 +159,7 @@ export default function ChatInterface({ domain, title, subtitle, placeholder, we
       setMessages((prev) => [...prev, botMessage]);
       setMeta({ sending: false, error: null });
     } catch (err) {
-      setMeta({ sending: false, error: err instanceof Error ? err.message : "Unexpected error" });
+      setMeta({ sending: false, error: formatRequestError(err) });
     }
   };
 
