@@ -1,0 +1,16 @@
+{
+  "buildCommand": "cd multi-domain-rag-chatbot/frontend && npm install && npm run build",
+  "outputDirectory": "multi-domain-rag-chatbot/frontend/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ]
+}
