@@ -1,7 +1,8 @@
 """Education domain RAG chain.
 
-Models are loaded ONCE at module import time and reused for every request,
-keeping per-request latency under 5 seconds.
+Uses lazy singleton initialisation: models are loaded on the FIRST request
+and cached for every subsequent call.  This keeps Render startup fast while
+still giving per-request latency under 5 seconds after warm-up.
 """
 from pathlib import Path
 import os
@@ -21,26 +22,34 @@ VS_PATH = PROJECT_ROOT / "vectorstores" / "education_faiss"
 SCORE_THRESHOLD = 0.80
 _EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# ── Singleton: load once, reuse forever ──────────────────────────────────────
-def _build_llm() -> ChatGroq:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY is missing from .env")
-    return ChatGroq(model="llama-3.1-8b-instant", api_key=api_key)
+# ── Lazy singletons (None until first request) ────────────────────────────────
+_LLM: Optional[ChatGroq] = None
+_VS: Optional[FAISS] = None
+_VS_LOADED: bool = False          # True once we've attempted to load the VS
 
 
-def _build_vectorstore() -> Optional[FAISS]:
-    if not VS_PATH.exists() or not (VS_PATH / "index.faiss").exists():
-        print(f"[Education] WARNING: vectorstore not found at {VS_PATH}. Falling back to generic LLM.")
-        return None
-    embeddings = HuggingFaceEmbeddings(model_name=_EMBED_MODEL)
-    return FAISS.load_local(str(VS_PATH), embeddings, allow_dangerous_deserialization=True)
+def _get_llm() -> ChatGroq:
+    global _LLM
+    if _LLM is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is missing from .env")
+        _LLM = ChatGroq(model="llama-3.1-8b-instant", api_key=api_key)
+    return _LLM
 
 
-print("[Education] Loading LLM and vectorstore…")
-_LLM: ChatGroq = _build_llm()
-_VS: Optional[FAISS] = _build_vectorstore()
-print("[Education] Ready.")
+def _get_vs() -> Optional[FAISS]:
+    global _VS, _VS_LOADED
+    if not _VS_LOADED:
+        _VS_LOADED = True
+        if VS_PATH.exists() and (VS_PATH / "index.faiss").exists():
+            print("[Education] Loading vectorstore…")
+            embeddings = HuggingFaceEmbeddings(model_name=_EMBED_MODEL)
+            _VS = FAISS.load_local(str(VS_PATH), embeddings, allow_dangerous_deserialization=True)
+            print("[Education] Vectorstore ready.")
+        else:
+            print(f"[Education] WARNING: vectorstore missing at {VS_PATH}. Using generic LLM.")
+    return _VS
 # ─────────────────────────────────────────────────────────────────────────────
 
 RAG_PROMPT = PromptTemplate(
@@ -71,17 +80,19 @@ Answer:""",
 
 
 def hybrid_rag(question: str) -> Tuple[str, str]:
-    # No vectorstore → pure LLM fallback
-    if _VS is None:
+    llm = _get_llm()
+    vs = _get_vs()
+
+    if vs is None:
         prompt = GENERIC_PROMPT.format(question=question)
-        resp = _LLM.invoke(prompt)
+        resp = llm.invoke(prompt)
         return resp.content, "GPT (no vectorstore)"
 
-    docs = _VS.similarity_search_with_score(question, k=3)
+    docs = vs.similarity_search_with_score(question, k=3)
 
     if not docs:
         prompt = GENERIC_PROMPT.format(question=question)
-        resp = _LLM.invoke(prompt)
+        resp = llm.invoke(prompt)
         return resp.content, "GPT (no docs)"
 
     best_doc, best_score = docs[0]
@@ -89,12 +100,12 @@ def hybrid_rag(question: str) -> Tuple[str, str]:
 
     if best_score > SCORE_THRESHOLD:
         prompt = GENERIC_PROMPT.format(question=question)
-        resp = _LLM.invoke(prompt)
+        resp = llm.invoke(prompt)
         return resp.content, f"GPT (score={best_score:.4f} > {SCORE_THRESHOLD})"
 
     context = "\n\n".join(doc.page_content for doc, _ in docs)
     prompt = RAG_PROMPT.format(question=question, context=context)
-    resp = _LLM.invoke(prompt)
+    resp = llm.invoke(prompt)
     return resp.content, f"RAG (score={best_score:.4f} <= {SCORE_THRESHOLD})"
 
 
@@ -106,8 +117,6 @@ if __name__ == "__main__":
             break
         try:
             answer, mode = hybrid_rag(q)
-            print(f"\n--- MODE: {mode} ---")
-            print(answer)
-            print("\n" + "-" * 80 + "\n")
+            print(f"\n--- MODE: {mode} ---\n{answer}\n{'─'*80}\n")
         except Exception as e:
             print("Error:", e)
