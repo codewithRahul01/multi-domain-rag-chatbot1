@@ -105,8 +105,12 @@ export default function ChatInterface({ domain, title, subtitle, placeholder, we
     fetch(healthEndpoint, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error("Backend health check failed");
+        // Clear any stale error from a previous aborted attempt (e.g. React StrictMode remount).
+        setMeta((prev) => (prev.error ? { ...prev, error: null } : prev));
       })
-      .catch(() => {
+      .catch((err) => {
+        // Ignore AbortError — it fires when React StrictMode unmounts and the cleanup aborts the fetch.
+        if (err instanceof DOMException && err.name === "AbortError") return;
         setMeta((prev) =>
           prev.error
             ? prev
