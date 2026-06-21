@@ -257,6 +257,7 @@ This project is open source and available under the [MIT License](LICENSE).
 ---
 
 ## 👤 Author
-
+**Rahul**
+- GitHub: [codewithRahul01](https://github.com/codewithRahul01)
 **Himanshu Tomar**
 - GitHub: [@Himanshutomar03](https://github.com/Himanshutomar03)
